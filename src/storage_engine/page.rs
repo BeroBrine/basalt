@@ -248,11 +248,13 @@ impl Page {
     }
 
     pub fn get_record(&self, slot_idx: u16) -> Result<&[u8]> {
-        if self.is_tombstone_slot(slot_idx)? {
-            return Err(BasaltError::TombstoneSlot(slot_idx));
+        let (record_offset, record_len) = self.get_record_offset_len_tuple(slot_idx)?;
+
+        // protection against data corruption on disk
+        if record_offset + record_len > PAGE_SIZE {
+            return Err(BasaltError::CorruptedPage);
         }
 
-        let (record_offset, record_len) = self.get_record_offset_len_tuple(slot_idx)?;
         Ok(&self.data[record_offset..record_offset + record_len])
     }
 
