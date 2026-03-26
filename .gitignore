@@ -1,7 +1,7 @@
-/target
+# Build / target directories
+target/
+.direnv/
 
-.direnv
+# Environment files (sensitive)
 .env
 .envrc
-
-
