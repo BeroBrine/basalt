@@ -32,7 +32,7 @@ The current development trajectory is focused on moving up the storage stack:
 To run the test suite and verify the integrity of the storage layer:
 
 ```bash
-git clone [https://github.com/BeroBrine/basalt.git](https://github.com/BeroBrine/basalt.git)
+git clone https://github.com/BeroBrine/basalt.git
 cd basalt
 cargo test
 ```
