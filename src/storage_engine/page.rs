@@ -12,7 +12,7 @@ pub const OFFSET_LSN: usize = 8; // 8 bytes. Reserving space for future implemen
 pub const OFFSET_FREESPACE_UPPER_BOUND: usize = 16; // 2 bytes  starts from the end
 pub const OFFSET_FREESPACE_LOWER_BOUND: usize = 18; // 2 bytes  starts from the header
 pub const OFFSET_NUMBER_OF_SLOTS: usize = 20; // 2 bytes
-pub const OFFSET_RESERVED: usize = 24; // reserved space for better padding alignment.
+pub const OFFSET_RESERVED: usize = 24; // reserved space for better padding alignment. 22 - 24
 pub const PAGE_HEADER_SIZE: usize = 24; // ideally should be a multiple of 8.
 
 pub struct Page {
@@ -32,6 +32,14 @@ impl Page {
         page.set_freespace_lower_bound_offset(PAGE_HEADER_SIZE as u16);
 
         page
+    }
+
+    pub(crate) fn get_raw_data(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub(crate) fn get_raw_data_mut(&mut self) -> &mut [u8] {
+        &mut self.data
     }
 
     pub fn get_page_id(&self) -> u64 {

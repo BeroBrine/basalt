@@ -3,8 +3,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum BasaltError {
-    #[error("I/O Error {0}")]
-    Io(#[from] io::Error),
+    #[error("I/O Error")]
+    IoError(#[from] io::Error),
 
     #[error("Page {0} is out of bounds")]
     PageOutOfBounds(u64),
