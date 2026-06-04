@@ -47,7 +47,7 @@ impl Replacer for ClockReplacer {
             if current_frame_state == STATE_HOT {
                 // downgrade to cold state as it was recently used
                 // compare exchange is used so that we dont accidentaly overwrite at the last
-                // millisecond when a thread marked it as pinned.
+                // millisecond when a thread marks it as pinned.
                 let _ = self.states[clock_hand].compare_exchange(
                     current_frame_state,
                     STATE_COLD,
@@ -75,7 +75,7 @@ impl Replacer for ClockReplacer {
 
             sweeps += 1;
         }
-        None // Out of memory? 
+        None // Out of memory? yahoooooooooooo 
     }
 
     fn unpin(&self, frame_id: usize) {

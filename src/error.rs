@@ -6,8 +6,11 @@ pub enum BasaltError {
     #[error("I/O Error")]
     IoError(#[from] io::Error),
 
-    #[error("Page {0} is out of bounds")]
+    #[error("Page {0} is out of bounds.")]
     PageOutOfBounds(u64),
+
+    #[error("Page Id {0} is not found.")]
+    PageNotFound(u64),
 
     #[error("Page corrupted")]
     CorruptedPage,
@@ -17,6 +20,9 @@ pub enum BasaltError {
 
     #[error("Slot {0} is a tombstone slot.")]
     TombstoneSlot(u16),
+
+    #[error("The database engine ran out of allocated memory!")]
+    OutOfMemory,
 }
 
 pub type Result<T> = std::result::Result<T, BasaltError>;

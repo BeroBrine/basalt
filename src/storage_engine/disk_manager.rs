@@ -15,6 +15,7 @@ pub struct DiskManager {
     next_page_id: AtomicU64,
 }
 
+
 impl DiskManager {
     pub fn new(file_path: impl AsRef<Path>) -> Result<Self> {
         let file = OpenOptions::new()
@@ -51,12 +52,12 @@ impl DiskManager {
         Ok(())
     }
 
-    pub fn write_page(&self, page_id: u64, page: &mut Page) -> Result<()> {
+    pub fn write_page(&self, page_id: u64, page: &Page) -> Result<()> {
         self.validate_page_id(page_id)?;
 
         let offset = page_id * (PAGE_SIZE as u64);
 
-        self.file.write_all_at(page.get_raw_data_mut(), offset)?;
+        self.file.write_all_at(page.get_raw_data(), offset)?;
 
         Ok(())
     }
