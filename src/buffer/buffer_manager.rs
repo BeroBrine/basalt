@@ -6,11 +6,11 @@ use std::{
 use crate::{
     buffer::replacer::Replacer,
     error::{BasaltError, Result},
-    storage_engine::{disk_manager::DiskManager, page::Page},
+    storage_engine::{disk_manager::DiskManager, page::TablePageGuard},
 };
 
 struct Frame {
-    page: Page,
+    data: [u8; 4096],
     page_id: Option<u64>,
     is_dirty: bool,
     pin_count: usize,
@@ -19,7 +19,7 @@ struct Frame {
 impl Frame {
     pub fn new() -> Self {
         Self {
-            page: Page::new(0),
+            data: [0u8; 4096], 
             page_id: None,
             is_dirty: false,
             pin_count: 0,
@@ -92,7 +92,7 @@ impl BufferManager {
         // if the frame we stole is dirty. save it's contents to the disk first.
         if frame.is_dirty {
             if let Some(old_page_id) = frame.page_id {
-                self.disk_manager.write_page(old_page_id, &frame.page)?;
+                self.disk_manager.write_page(old_page_id, &TablePageGuard::new(&mut frame.data))?;
             }
             frame.is_dirty = false;
         }
@@ -108,7 +108,7 @@ impl BufferManager {
         } // write lock will be droppped.
 
         // Step4: read the data from the disk into the frame.
-        self.disk_manager.read_page(page_id, &mut frame.page)?;
+        self.disk_manager.read_page(page_id, &mut TablePageGuard::new(&mut frame.data))?;
 
         // Step 5: Reset the metadata for the frame;
         frame.page_id = Some(page_id);

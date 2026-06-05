@@ -6,13 +6,14 @@ pub enum BasaltError {
     #[error("I/O Error")]
     IoError(#[from] io::Error),
 
+
     #[error("Page {0} is out of bounds.")]
     PageOutOfBounds(u64),
 
     #[error("Page Id {0} is not found.")]
     PageNotFound(u64),
 
-    #[error("Page corrupted")]
+    #[error("Page is corrupted")]
     CorruptedPage,
 
     #[error("Slot Index {0} is out of bounds")]

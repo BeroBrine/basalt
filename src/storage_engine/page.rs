@@ -2,59 +2,87 @@ use crate::error::{BasaltError, Result};
 
 /// A Slotted Page encapsulating a 4KB block of memory.
 /// Layout:
-/// [Header (24B)] [Slot Array ->] ... [Free Space] ... [<- Data Records]
+/// [Header (26B)] [Slot Array ->] ... [Free Space] ... [<- Data Records]
 pub const PAGE_SIZE: usize = 4096;
-pub const SLOT_SIZE: usize = 4; // 2 byte offset + 2 bye length
+pub const SLOT_SIZE: usize = 4; // 2 byte offset + 2 byte length
 
-/// Header Offsets. These use byte index (slot_idx is the only that uses logical index )
-pub const OFFSET_PAGE_ID: usize = 0; // 8 bytes
-pub const OFFSET_LSN: usize = 8; // 8 bytes. Reserving space for future implementation of WAL 
-pub const OFFSET_FREESPACE_UPPER_BOUND: usize = 16; // 2 bytes  starts from the end
-pub const OFFSET_FREESPACE_LOWER_BOUND: usize = 18; // 2 bytes  starts from the header
-pub const OFFSET_NUMBER_OF_SLOTS: usize = 20; // 2 bytes
-pub const OFFSET_RESERVED: usize = 24; // reserved space for better padding alignment. 22 - 24
-pub const PAGE_HEADER_SIZE: usize = 24; // ideally should be a multiple of 8.
+/// Header Offsets. These use byte index (slot_idx is the only that uses logical index)
+pub const OFFSET_PAGE_ID: usize = 0; // 4 bytes
+pub const OFFSET_LSN: usize = 4; // 8 bytes. Reserving space for future implementation of WAL
+pub const OFFSET_PREV_PAGE_ID: usize = 12; // 4 bytes
+pub const OFFSET_NEXT_PAGE_ID: usize = 16; // 4 bytes
+pub const OFFSET_FREESPACE_UPPER_BOUND: usize = 20; // 2 bytes  starts from the end
+pub const OFFSET_FREESPACE_LOWER_BOUND: usize = 22; // 2 bytes  starts from the header
+pub const OFFSET_NUMBER_OF_SLOTS: usize = 24; // 2 bytes
 
-pub struct Page {
-    data: [u8; PAGE_SIZE],
+pub const PAGE_HEADER_SIZE: usize = 26; // FIXED: Added up the actual offset bytes (totals 26)
+
+pub const INVALID_PAGE_ID: u32 = u32::MAX;
+
+pub struct TablePageGuard<'a> {
+    pub data: &'a mut [u8; PAGE_SIZE],
 }
 
-impl Page {
-    pub fn new(page_id: u64) -> Self {
-        let mut page = Self {
-            data: [0; PAGE_SIZE],
-        };
-
-        page.set_page_id(page_id);
-        page.set_lsn(0);
-        page.set_no_of_slots(0);
-        page.set_freespace_upper_bound_offset(PAGE_SIZE as u16);
-        page.set_freespace_lower_bound_offset(PAGE_HEADER_SIZE as u16);
-
-        page
+impl<'a> TablePageGuard<'a> {
+    pub fn new(data: &'a mut [u8; PAGE_SIZE]) -> Self {
+        Self { data }
     }
 
-    pub(crate) fn get_raw_data(&self) -> &[u8] {
-        &self.data
+    pub fn init(&mut self, page_id: u32, next_page_id: u32, prev_page_id: u32) {
+        self.set_page_id(page_id);
+        self.set_lsn(0);
+        self.set_prev_page_id(prev_page_id);
+        self.set_next_page_id(next_page_id);
+        self.set_no_of_slots(0);
+        self.set_freespace_upper_bound_offset(PAGE_SIZE as u16);
+        self.set_freespace_lower_bound_offset(PAGE_HEADER_SIZE as u16);
     }
 
-    pub(crate) fn get_raw_data_mut(&mut self) -> &mut [u8] {
-        &mut self.data
-    }
-
-    pub fn get_page_id(&self) -> u64 {
+    pub fn get_page_id(&self) -> u32 {
         // slice the page id bytes from the header
-        let page_id_bytes_slice = OFFSET_PAGE_ID..OFFSET_PAGE_ID + 8; // 8 bytes
+        let page_id_bytes_slice = OFFSET_PAGE_ID..OFFSET_PAGE_ID + 4; // 4 bytes
         let page_id_le_bytes = self.data[page_id_bytes_slice]
             .try_into()
             .expect("Error reading page id bytes");
-        u64::from_le_bytes(page_id_le_bytes)
+        u32::from_le_bytes(page_id_le_bytes)
     }
 
-    pub fn set_page_id(&mut self, page_id: u64) {
+    pub fn set_page_id(&mut self, page_id: u32) {
         let page_id_le_bytes = page_id.to_le_bytes();
-        let page_id_bytes_slice = OFFSET_PAGE_ID..OFFSET_PAGE_ID + 8; // 8 bytes
+        let page_id_bytes_slice = OFFSET_PAGE_ID..OFFSET_PAGE_ID + 4; // 4 bytes
         self.data[page_id_bytes_slice].copy_from_slice(&page_id_le_bytes);
+    }
+
+    pub fn set_prev_page_id(&mut self, prev_page_id: u32) {
+        let prev_page_id_le_bytes = prev_page_id.to_le_bytes();
+        let prev_page_id_bytes_slice = OFFSET_PREV_PAGE_ID..OFFSET_PREV_PAGE_ID + 4; // 4 bytes
+        self.data[prev_page_id_bytes_slice].copy_from_slice(&prev_page_id_le_bytes);
+    }
+
+    pub fn get_prev_page_id(&self) -> u32 {
+        let prev_page_id_bytes_slice = OFFSET_PREV_PAGE_ID..OFFSET_PREV_PAGE_ID + 4;
+        let prev_page_id_bytes = self.data[prev_page_id_bytes_slice]
+            .try_into()
+            .expect("error reading prev page id");
+
+        u32::from_le_bytes(prev_page_id_bytes)
+    }
+
+    pub fn set_next_page_id(&mut self, next_page_id: u32) {
+        let next_page_id_bytes_slice = OFFSET_NEXT_PAGE_ID..OFFSET_NEXT_PAGE_ID + 4;
+        let next_page_id_le_bytes = next_page_id.to_le_bytes();
+
+        self.data[next_page_id_bytes_slice].copy_from_slice(&next_page_id_le_bytes);
+    }
+
+    pub fn get_next_page_id(&self) -> u32 {
+        let next_page_id_bytes_slice = OFFSET_NEXT_PAGE_ID..OFFSET_NEXT_PAGE_ID + 4;
+
+        let next_page_id_le_bytes = self.data[next_page_id_bytes_slice]
+            .try_into()
+            .expect("Error reading next page id");
+
+        u32::from_le_bytes(next_page_id_le_bytes)
     }
 
     pub fn get_lsn(&self) -> u64 {
@@ -163,7 +191,7 @@ impl Page {
         Ok(&self.data[slot_offset..slot_offset + SLOT_SIZE])
     }
 
-    // Fetches the slot and returns  a tuple containing record offset ptr and record len
+    // Fetches the slot and returns a tuple containing record offset ptr and record len
     pub fn get_record_offset_len_tuple(&self, slot_idx: u16) -> Result<(usize, usize)> {
         // using the internal helper to bypass the tombstone check
         let slot = self.get_slot_raw(slot_idx)?;
@@ -188,6 +216,7 @@ impl Page {
         let lower_bound_offset = self.get_freespace_lower_bound_offset() as usize;
         let upper_bound_offset = self.get_freespace_upper_bound_offset() as usize;
         let slots_no = self.get_no_of_slots();
+        
         // hunt for existing tombstone
         let mut tombstone_slot_idx: Option<u16> = None;
 
@@ -215,7 +244,7 @@ impl Page {
         let free_space = self.get_freespace();
 
         if free_space < total_record_len {
-            return None; // NOTE: Vacumming will be done by the engine layer. SOC 
+            return None; // NOTE: Vacumming will be done by the engine layer. SOC
         }
 
         // Assign record.. (at the end of the page)
@@ -224,10 +253,9 @@ impl Page {
         self.data[new_upper_offset..upper_bound_offset].copy_from_slice(record);
 
         // Assign tombstone or append at the end.. (after the headers)
-        //
         let final_slot_idx = tombstone_slot_idx.unwrap_or(slots_no);
 
-        // since insert is an trusted mutation that grows the array , this operation is safe.
+        // since insert is a trusted mutation that grows the array , this operation is safe.
         let slot_offset = PAGE_HEADER_SIZE + (final_slot_idx as usize * SLOT_SIZE);
         let slot = &mut self.data[slot_offset..slot_offset + SLOT_SIZE];
 
@@ -256,6 +284,12 @@ impl Page {
     }
 
     pub fn get_record(&self, slot_idx: u16) -> Result<&[u8]> {
+        
+        if self.is_tombstone_slot(slot_idx)? {
+            return Err(BasaltError::TombstoneSlot(slot_idx))
+        }
+
+
         let (record_offset, record_len) = self.get_record_offset_len_tuple(slot_idx)?;
 
         // protection against data corruption on disk
@@ -266,8 +300,12 @@ impl Page {
         Ok(&self.data[record_offset..record_offset + record_len])
     }
 
-    // will the record ever be mutated directly?
     pub fn get_record_mut(&mut self, slot_idx: u16) -> Result<&mut [u8]> {
+
+        if self.is_tombstone_slot(slot_idx)? {
+            return Err(BasaltError::TombstoneSlot(slot_idx))
+        }
+
         let (record_offset, record_len) = self.get_record_offset_len_tuple(slot_idx)?;
 
         // protection against data corruption on disk
@@ -291,11 +329,12 @@ impl Page {
         // rust stores this on the CPU stack (L1 cache) as it's size is known on compile time. no
         // heap allocation is done so optimizing this function for in place vacuum is trivial.
         let mut temp_buf = [0u8; PAGE_SIZE];
+        let mut buf_guard = TablePageGuard::new(&mut temp_buf);
 
         // copy the headers and slot array -> lower bound
         let lower_bound = self.get_freespace_lower_bound_offset() as usize;
         // copy from slice demands that the both src and dest be the same size.
-        temp_buf[0..lower_bound].copy_from_slice(&self.data[0..lower_bound]);
+        buf_guard.data[0..lower_bound].copy_from_slice(&self.data[0..lower_bound]);
 
         let mut new_upper_bound = PAGE_SIZE;
         let total_slots = self.get_no_of_slots();
@@ -313,17 +352,18 @@ impl Page {
             let upper_bound = new_upper_bound - record_len;
             new_upper_bound = upper_bound;
 
-            temp_buf[upper_bound..upper_bound + record_len].copy_from_slice(live_record);
+            buf_guard.data[upper_bound..upper_bound + record_len].copy_from_slice(live_record);
 
             // update the temp buf slot
             let slot_offset = PAGE_HEADER_SIZE + (i as usize * SLOT_SIZE);
-            let slot = &mut temp_buf[slot_offset..slot_offset + SLOT_SIZE];
+            let slot = &mut buf_guard.data[slot_offset..slot_offset + SLOT_SIZE];
 
             slot[0..2].copy_from_slice(&(upper_bound as u16).to_le_bytes());
             slot[2..4].copy_from_slice(&(record_len as u16).to_le_bytes());
         }
 
-        self.data = temp_buf;
+        // dereference to overwrite the memory slots
+        *self.data = temp_buf;
         self.set_freespace_upper_bound_offset(new_upper_bound as u16);
 
         Ok(())
@@ -336,8 +376,9 @@ mod tests {
 
     #[test]
     fn test_page_initilization() {
-        let page_id = 42;
-        let page = Page::new(page_id);
+        let mut data = [0u8; 4096];
+        let mut page = TablePageGuard::new(&mut data);
+        page.init(42, INVALID_PAGE_ID, INVALID_PAGE_ID);
 
         assert_eq!(page.get_page_id(), 42);
         assert_eq!(page.get_lsn(), 0);
@@ -348,14 +389,17 @@ mod tests {
             PAGE_HEADER_SIZE as u16
         );
 
-        // freespace -> 4096 - 24 = 4072 free space left
+        // freespace -> 4096 - 26 = 4070 free space left
         assert_eq!(page.get_freespace(), (PAGE_SIZE - PAGE_HEADER_SIZE) as u16)
     }
 
     #[test]
     fn test_insert_and_get() {
-        let mut page = Page::new(1);
-        let record = b"Hello! Basalt!"; // 14 bytes 
+        let mut data = [0u8; 4096];
+        let mut page = TablePageGuard::new(&mut data);
+        page.init(42, INVALID_PAGE_ID, INVALID_PAGE_ID);
+        
+        let record = b"Hello! Basalt!"; // 14 bytes
 
         let slot_idx = page.insert(record).expect("Failed to insert record");
 
@@ -380,7 +424,10 @@ mod tests {
 
     #[test]
     fn test_insert_out_of_space() {
-        let mut page = Page::new(1);
+        let mut data = [0u8; 4096];
+        let mut page = TablePageGuard::new(&mut data);
+        page.init(42, INVALID_PAGE_ID, INVALID_PAGE_ID);
+        
         let large_record = &[0u8; PAGE_SIZE + 1];
 
         let result = page.insert(large_record);
@@ -390,8 +437,8 @@ mod tests {
             "Should reject records that are bigger than {PAGE_SIZE} bytes"
         );
 
-        // testing data that fits in the raw page but not in the available space of 4076 bytes
-        let huge_record = &[0u8; 4077];
+        // testing data that fits in the raw page but not in the available space of 4070 bytes
+        let huge_record = &[0u8; 4071];
         let insert_result = page.insert(huge_record);
 
         assert!(
@@ -402,7 +449,9 @@ mod tests {
 
     #[test]
     fn test_delete_and_tombstone_reuse() {
-        let mut page = Page::new(1);
+        let mut data = [0u8; 4096];
+        let mut page = TablePageGuard::new(&mut data);
+        page.init(42, INVALID_PAGE_ID, INVALID_PAGE_ID);
 
         let record1 = b"record_1";
         let record2 = b"record_2";
@@ -444,7 +493,9 @@ mod tests {
 
     #[test]
     fn test_vacuum() {
-        let mut page = Page::new(1);
+        let mut data = [0u8; 4096];
+        let mut page = TablePageGuard::new(&mut data);
+        page.init(42, INVALID_PAGE_ID, INVALID_PAGE_ID);
 
         let record1 = b"HELLO";
         let record2 = b"WORLD";

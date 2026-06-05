@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::{BasaltError, Result},
-    storage_engine::page::{PAGE_SIZE, Page},
+    storage_engine::page::{PAGE_SIZE, TablePageGuard},
 };
 
 pub struct DiskManager {
@@ -38,7 +38,7 @@ impl DiskManager {
         })
     }
 
-    pub fn read_page(&self, page_id: u64, page: &mut Page) -> Result<()> {
+    pub fn read_page(&self, page_id: u64, page: &mut TablePageGuard) -> Result<()> {
         self.validate_page_id(page_id)?;
 
         let offset = page_id * (PAGE_SIZE as u64);
@@ -47,17 +47,17 @@ impl DiskManager {
         // allows to read at an offset in a file without affecting the current cursor basically a
         // no lock multi threaded implementation.
         // rust allows this only for a immutable self ref -> &self;
-        self.file.read_exact_at(page.get_raw_data_mut(), offset)?;
+        self.file.read_exact_at(page.data, offset)?;
 
         Ok(())
     }
 
-    pub fn write_page(&self, page_id: u64, page: &Page) -> Result<()> {
+    pub fn write_page(&self, page_id: u64, page: &TablePageGuard) -> Result<()> {
         self.validate_page_id(page_id)?;
 
         let offset = page_id * (PAGE_SIZE as u64);
 
-        self.file.write_all_at(page.get_raw_data(), offset)?;
+        self.file.write_all_at(page.data, offset)?;
 
         Ok(())
     }
