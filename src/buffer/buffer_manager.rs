@@ -11,7 +11,7 @@ use crate::{
 
 struct Frame {
     data: [u8; 4096],
-    page_id: Option<u64>,
+    page_id: Option<u32>,
     is_dirty: bool,
     pin_count: usize,
 }
@@ -36,7 +36,7 @@ pub struct BufferManager {
     // page table allows to check if the cache even contains the requested page in constant time.
     // if it is not found in this table , it is a cache miss and must be loaded from the hard drive
     // Logical Page ID -> Physical frame index
-    page_table: RwLock<HashMap<u64, usize>>,
+    page_table: RwLock<HashMap<u32, usize>>,
     // list of frames that are currently empty.
     free_list: Mutex<VecDeque<usize>>,
     replacer: Arc<dyn Replacer>,
@@ -67,7 +67,7 @@ impl BufferManager {
         }
     }
 
-    pub fn fetch_page(&self, page_id: u64) -> Result<Arc<RwLock<Frame>>> {
+    pub fn fetch_page(&self, page_id: u32) -> Result<Arc<RwLock<Frame>>> {
         // Step 1: Check in the cache
         // we must never hold the read lock for the entirety of the function as holding the lock
         // while performing disk operations will halt the whole database;
@@ -84,9 +84,12 @@ impl BufferManager {
         } // Read lock will be automatically dropped here.
 
         // Step 2:  Cache miss. Find a victim frame to load the page
+        
         let victim_frame_id = self.find_victim_frame_id()?;
         let victim_frame_arc = Arc::clone(&self.frames[victim_frame_id]);
+
         // acquire a write lock on the frame.
+
         let mut frame = victim_frame_arc.write().unwrap();
 
         // if the frame we stole is dirty. save it's contents to the disk first.
@@ -118,7 +121,7 @@ impl BufferManager {
         Ok(victim_frame_arc.clone())
     }
 
-    pub fn unpin_page(&self, page_id: u64, is_dirty: bool) -> Result<()> {
+    pub fn unpin_page(&self, page_id: u32, is_dirty: bool) -> Result<()> {
         let frame_id = *self.page_table.read().unwrap().get(&page_id).unwrap();
 
         let frame_arc = Arc::clone(&self.frames[frame_id]);

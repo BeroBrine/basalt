@@ -2,7 +2,7 @@ use std::{
     fs::{File, OpenOptions},
     os::unix::fs::FileExt,
     path::Path,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 
 pub struct DiskManager {
     file: File,
-    next_page_id: AtomicU64,
+    next_page_id: AtomicU32,
 }
 
 
@@ -29,19 +29,19 @@ impl DiskManager {
         let metadata = file.metadata()?;
 
         let file_len = metadata.len();
-
-        let next_page_id = file_len / (PAGE_SIZE as u64);
+    
+        let next_page_id = (file_len  / PAGE_SIZE as u64) as u32; 
 
         Ok(Self {
             file,
-            next_page_id: AtomicU64::new(next_page_id),
+            next_page_id: AtomicU32::new(next_page_id),
         })
     }
 
-    pub fn read_page(&self, page_id: u64, page: &mut TablePageGuard) -> Result<()> {
+    pub fn read_page(&self, page_id: u32, page: &mut TablePageGuard) -> Result<()> {
         self.validate_page_id(page_id)?;
 
-        let offset = page_id * (PAGE_SIZE as u64);
+        let offset = (page_id * PAGE_SIZE as u32) as u64; 
 
         // this operation allows to bypass the sequental cursor for file.
         // allows to read at an offset in a file without affecting the current cursor basically a
@@ -52,17 +52,17 @@ impl DiskManager {
         Ok(())
     }
 
-    pub fn write_page(&self, page_id: u64, page: &TablePageGuard) -> Result<()> {
+    pub fn write_page(&self, page_id: u32, page: &TablePageGuard) -> Result<()> {
         self.validate_page_id(page_id)?;
 
-        let offset = page_id * (PAGE_SIZE as u64);
+        let offset = ((page_id as usize) * PAGE_SIZE) as u64;
 
         self.file.write_all_at(page.data, offset)?;
 
         Ok(())
     }
 
-    pub fn validate_page_id(&self, page_id: u64) -> Result<()> {
+    pub fn validate_page_id(&self, page_id: u32) -> Result<()> {
         // ordering relaxed is used to atomically read the value of next_page_id which is extremely
         // fast as it doesn't care about the current memory layout of multiple threads that are r/w
         // to this variable.
@@ -72,7 +72,7 @@ impl DiskManager {
         Ok(())
     }
 
-    pub fn allocate_page(&self) -> u64 {
+    pub fn allocate_page(&self) -> u32 {
         // SeqCst guarantees that at the time of operation , the value of this variable will be the
         // same for all the threads
         //NOTE: return PREVIOUS value of next page id
