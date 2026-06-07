@@ -94,3 +94,106 @@ impl Replacer for ClockReplacer {
             .count()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clock_replacer_initialization() {
+        let replacer = ClockReplacer::new(10);
+        assert_eq!(replacer.size(), 0);
+    }
+
+    #[test]
+    fn test_clock_replacer_unpin() {
+        let replacer = ClockReplacer::new(10);
+        replacer.unpin(1);
+        replacer.unpin(2);
+        replacer.unpin(3);
+        assert_eq!(replacer.size(), 3);
+    }
+
+    #[test]
+    fn test_clock_replacer_pin() {
+        let replacer = ClockReplacer::new(10);
+        replacer.unpin(1);
+        replacer.unpin(2);
+        replacer.unpin(3);
+        assert_eq!(replacer.size(), 3);
+        replacer.pin(2);
+        assert_eq!(replacer.size(), 2);
+    }
+
+    #[test]
+    fn test_clock_replacer_victim() {
+        let replacer = ClockReplacer::new(3);
+        replacer.unpin(0);
+        replacer.unpin(1);
+        replacer.unpin(2);
+        assert_eq!(replacer.size(), 3);
+
+        // First sweep: all HOT -> COLD
+        // After first sweep, hand is at 0 again (if it started at 0)
+        // Actually fetch_add happens before returning the value, so hand is incremented.
+        
+        // Let's trace:
+        // victim() starts
+        // clock_hand = 0, state[0] HOT -> COLD, hand = 1
+        // clock_hand = 1, state[1] HOT -> COLD, hand = 2
+        // clock_hand = 2, state[2] HOT -> COLD, hand = 3 (mod 3 = 0)
+        // sweeps = 3. no_of_sweeps = 6.
+        // clock_hand = 0, state[0] is COLD, returns Some(0), state[0] pinned.
+        
+        assert_eq!(replacer.victim(), Some(0));
+        assert_eq!(replacer.size(), 2);
+
+        assert_eq!(replacer.victim(), Some(1));
+        assert_eq!(replacer.size(), 1);
+
+        assert_eq!(replacer.victim(), Some(2));
+        assert_eq!(replacer.size(), 0);
+
+        assert_eq!(replacer.victim(), None);
+    }
+
+    #[test]
+    fn test_clock_replacer_complex() {
+        let replacer = ClockReplacer::new(10);
+
+        for i in 0..10 {
+            replacer.unpin(i);
+        }
+        assert_eq!(replacer.size(), 10);
+
+        replacer.pin(0);
+        replacer.pin(4);
+        replacer.pin(8);
+        assert_eq!(replacer.size(), 7);
+
+        // Victim should skip pinned ones
+        // hand starts at 0. 
+        // 0 is PINNED, skip. hand=1
+        // 1 is HOT->COLD, hand=2
+        // 2 is HOT->COLD, hand=3
+        // 3 is HOT->COLD, hand=4
+        // 4 is PINNED, skip. hand=5
+        // 5 is HOT->COLD, hand=6
+        // 6 is HOT->COLD, hand=7
+        // 7 is HOT->COLD, hand=8
+        // 8 is PINNED, skip. hand=9
+        // 9 is HOT->COLD, hand=0
+        
+        // Second sweep:
+        // 0 PINNED, skip
+        // 1 COLD -> PINNED, return Some(1)
+        assert_eq!(replacer.victim(), Some(1));
+        assert_eq!(replacer.victim(), Some(2));
+        assert_eq!(replacer.victim(), Some(3));
+        assert_eq!(replacer.victim(), Some(5));
+        assert_eq!(replacer.victim(), Some(6));
+        assert_eq!(replacer.victim(), Some(7));
+        assert_eq!(replacer.victim(), Some(9));
+        assert_eq!(replacer.victim(), None);
+    }
+}

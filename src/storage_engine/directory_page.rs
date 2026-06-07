@@ -23,8 +23,9 @@ impl<'a> DirectoryPageGuard<'a> {
         Self {data}
     }
 
-    pub fn init(next_directory_page_id: u32) {
-
+    pub fn init(&mut self, next_directory_page_id: u32) {
+        self.set_no_of_entries(0);
+        self.set_next_directory_page_id(next_directory_page_id);
     }
 
 
@@ -99,10 +100,9 @@ impl<'a> DirectoryPageGuard<'a> {
     pub fn update_page_freespace(&mut self , page_id: u32 , freespace: u32) -> Result<()> {
 
         let no_of_entries = self.get_no_of_entries();
-        let mut count = 0;
 
-        for count in 0..no_of_entries {
-            let entry_offset = Self::get_entry_offset(count);
+        for i in 0..no_of_entries {
+            let entry_offset = Self::get_entry_offset(i);
 
             let mut page_id_bytes = [0u8;4];
             let entry_page_id_bytes = &self.data[entry_offset..entry_offset + 4]; 
@@ -116,16 +116,16 @@ impl<'a> DirectoryPageGuard<'a> {
             }
         }
 
-        if count >= DIR_MAX_ENTRIES {
+        if no_of_entries >= DIR_MAX_ENTRIES {
             // allocate a new directory page
             return Err(BasaltError::DirectoryNotEnoughSpace)
         }
 
-        let new_offset = Self::get_entry_offset(count);
+        let new_offset = Self::get_entry_offset(no_of_entries);
         self.data[new_offset..new_offset + 4].copy_from_slice(&page_id.to_le_bytes());
         self.data[new_offset + 4..new_offset + 8].copy_from_slice(&freespace.to_le_bytes());
 
-        self.set_no_of_entries(count + 1);
+        self.set_no_of_entries(no_of_entries + 1);
 
 
 
@@ -134,7 +134,87 @@ impl<'a> DirectoryPageGuard<'a> {
 
     }
 
+}
 
-    
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    #[test]
+    fn test_directory_page_init() {
+        let mut data = [0u8; PAGE_SIZE];
+        let mut dir_page = DirectoryPageGuard::new(&mut data);
+        dir_page.init(123);
+
+        assert_eq!(dir_page.get_no_of_entries(), 0);
+        assert_eq!(dir_page.get_next_directory_page_id(), 123);
+    }
+
+    #[test]
+    fn test_directory_page_set_get_entries() {
+        let mut data = [0u8; PAGE_SIZE];
+        let mut dir_page = DirectoryPageGuard::new(&mut data);
+        dir_page.init(0);
+
+        dir_page.set_no_of_entries(42);
+        assert_eq!(dir_page.get_no_of_entries(), 42);
+    }
+
+    #[test]
+    fn test_update_page_freespace_new() {
+        let mut data = [0u8; PAGE_SIZE];
+        let mut dir_page = DirectoryPageGuard::new(&mut data);
+        dir_page.init(0);
+
+        dir_page.update_page_freespace(1, 100).unwrap();
+        assert_eq!(dir_page.get_no_of_entries(), 1);
+        assert_eq!(dir_page.get_required_freespace_page_id(100), Some(1));
+        assert_eq!(dir_page.get_required_freespace_page_id(101), None);
+    }
+
+    #[test]
+    fn test_update_page_freespace_existing() {
+        let mut data = [0u8; PAGE_SIZE];
+        let mut dir_page = DirectoryPageGuard::new(&mut data);
+        dir_page.init(0);
+
+        dir_page.update_page_freespace(1, 100).unwrap();
+        dir_page.update_page_freespace(1, 200).unwrap();
+        assert_eq!(dir_page.get_no_of_entries(), 1);
+        assert_eq!(dir_page.get_required_freespace_page_id(150), Some(1));
+    }
+
+    #[test]
+    fn test_multiple_entries() {
+        let mut data = [0u8; PAGE_SIZE];
+        let mut dir_page = DirectoryPageGuard::new(&mut data);
+        dir_page.init(0);
+
+        dir_page.update_page_freespace(1, 100).unwrap();
+        dir_page.update_page_freespace(2, 200).unwrap();
+        dir_page.update_page_freespace(3, 300).unwrap();
+
+        assert_eq!(dir_page.get_no_of_entries(), 3);
+        assert_eq!(dir_page.get_required_freespace_page_id(250), Some(3));
+        assert_eq!(dir_page.get_required_freespace_page_id(150), Some(2));
+        assert_eq!(dir_page.get_required_freespace_page_id(50), Some(1));
+    }
+
+    #[test]
+    fn test_directory_full() {
+        let mut data = [0u8; PAGE_SIZE];
+        let mut dir_page = DirectoryPageGuard::new(&mut data);
+        dir_page.init(0);
+
+        // Fill the directory
+        for i in 0..DIR_MAX_ENTRIES {
+            dir_page.update_page_freespace(i, 100).unwrap();
+        }
+
+        assert_eq!(dir_page.get_no_of_entries(), DIR_MAX_ENTRIES);
+
+        // Try to add one more
+        let result = dir_page.update_page_freespace(DIR_MAX_ENTRIES, 100);
+        assert!(matches!(result, Err(BasaltError::DirectoryNotEnoughSpace)));
+    }
 }
