@@ -149,14 +149,14 @@ impl<'a> TablePageGuard<'a> {
         self.get_freespace_upper_bound_offset() - self.get_freespace_lower_bound_offset()
     }
 
-    pub fn is_tombstone_slot(&self, slot_idx: u16) -> Result<bool> {
+    pub fn is_tombstone_slot(&self, slot_idx: u32) -> Result<bool> {
         let (record_offset, record_len) = self.get_record_offset_len_tuple(slot_idx)?;
 
         Ok(record_offset == 0 && record_len == 0)
     }
 
-    pub fn get_slot(&self, slot_idx: u16) -> Result<&[u8]> {
-        if slot_idx >= self.get_no_of_slots() {
+    pub fn get_slot(&self, slot_idx: u32) -> Result<&[u8]> {
+        if slot_idx >= self.get_no_of_slots() as u32 {
             return Err(BasaltError::SlotOutOfBounds(slot_idx));
         }
 
@@ -168,8 +168,8 @@ impl<'a> TablePageGuard<'a> {
         Ok(&self.data[slot_offset..slot_offset + SLOT_SIZE])
     }
 
-    pub fn get_slot_mut(&mut self, slot_idx: u16) -> Result<&mut [u8]> {
-        if slot_idx >= self.get_no_of_slots() {
+    pub fn get_slot_mut(&mut self, slot_idx: u32) -> Result<&mut [u8]> {
+        if slot_idx >= self.get_no_of_slots() as u32 {
             return Err(BasaltError::SlotOutOfBounds(slot_idx));
         }
 
@@ -183,8 +183,8 @@ impl<'a> TablePageGuard<'a> {
     }
 
     // internal helper function that does not check if the slot is deleted or not
-    fn get_slot_raw(&self, slot_idx: u16) -> Result<&[u8]> {
-        if slot_idx >= self.get_no_of_slots() {
+    fn get_slot_raw(&self, slot_idx: u32) -> Result<&[u8]> {
+        if slot_idx >= self.get_no_of_slots() as u32 {
             return Err(BasaltError::SlotOutOfBounds(slot_idx));
         }
         let slot_offset = PAGE_HEADER_SIZE + (slot_idx as usize * SLOT_SIZE);
@@ -192,7 +192,7 @@ impl<'a> TablePageGuard<'a> {
     }
 
     // Fetches the slot and returns a tuple containing record offset ptr and record len
-    pub fn get_record_offset_len_tuple(&self, slot_idx: u16) -> Result<(usize, usize)> {
+    pub fn get_record_offset_len_tuple(&self, slot_idx: u32) -> Result<(usize, usize)> {
         // using the internal helper to bypass the tombstone check
         let slot = self.get_slot_raw(slot_idx)?;
 
@@ -205,7 +205,7 @@ impl<'a> TablePageGuard<'a> {
         Ok((record_offset, record_len))
     }
 
-    pub fn insert(&mut self, record: &[u8]) -> Option<u16> {
+    pub fn insert(&mut self, record: &[u8]) -> Option<u32> {
         let record_len = record.len() as u16;
 
         // Sanity check: is the record itself bigger than the page?
@@ -218,10 +218,10 @@ impl<'a> TablePageGuard<'a> {
         let slots_no = self.get_no_of_slots();
         
         // hunt for existing tombstone
-        let mut tombstone_slot_idx: Option<u16> = None;
+        let mut tombstone_slot_idx: Option<u32> = None;
 
         for i in 0..slots_no {
-            let (record_offset, record_len) = self.get_record_offset_len_tuple(i).unwrap();
+            let (record_offset, record_len) = self.get_record_offset_len_tuple(i as u32).unwrap();
 
             // skip live slots
             if record_offset > 0 && record_len > 0 {
@@ -229,7 +229,7 @@ impl<'a> TablePageGuard<'a> {
             }
 
             // fetch the first tombstone encountered
-            tombstone_slot_idx = Some(i);
+            tombstone_slot_idx = Some(i as u32);
             break;
         }
 
@@ -253,7 +253,7 @@ impl<'a> TablePageGuard<'a> {
         self.data[new_upper_offset..upper_bound_offset].copy_from_slice(record);
 
         // Assign tombstone or append at the end.. (after the headers)
-        let final_slot_idx = tombstone_slot_idx.unwrap_or(slots_no);
+        let final_slot_idx = tombstone_slot_idx.unwrap_or(slots_no as u32);
 
         // since insert is a trusted mutation that grows the array , this operation is safe.
         let slot_offset = PAGE_HEADER_SIZE + (final_slot_idx as usize * SLOT_SIZE);
@@ -283,7 +283,7 @@ impl<'a> TablePageGuard<'a> {
         Some(final_slot_idx)
     }
 
-    pub fn get_record(&self, slot_idx: u16) -> Result<&[u8]> {
+    pub fn get_record(&self, slot_idx: u32) -> Result<&[u8]> {
         
         if self.is_tombstone_slot(slot_idx)? {
             return Err(BasaltError::TombstoneSlot(slot_idx))
@@ -300,24 +300,9 @@ impl<'a> TablePageGuard<'a> {
         Ok(&self.data[record_offset..record_offset + record_len])
     }
 
-    pub fn get_record_mut(&mut self, slot_idx: u16) -> Result<&mut [u8]> {
-
-        if self.is_tombstone_slot(slot_idx)? {
-            return Err(BasaltError::TombstoneSlot(slot_idx))
-        }
-
-        let (record_offset, record_len) = self.get_record_offset_len_tuple(slot_idx)?;
-
-        // protection against data corruption on disk
-        if record_offset + record_len > PAGE_SIZE {
-            return Err(BasaltError::CorruptedPage);
-        }
-
-        Ok(&mut self.data[record_offset..record_offset + record_len])
-    }
 
     // tombstone strategy
-    pub fn delete(&mut self, slot_idx: u16) -> Result<()> {
+    pub fn delete(&mut self, slot_idx: u32) -> Result<()> {
         let tombstone_slot = &mut self.get_slot_mut(slot_idx)?;
 
         tombstone_slot.fill(0);
@@ -329,7 +314,7 @@ impl<'a> TablePageGuard<'a> {
         // rust stores this on the CPU stack (L1 cache) as it's size is known on compile time. no
         // heap allocation is done so optimizing this function for in place vacuum is trivial.
         let mut temp_buf = [0u8; PAGE_SIZE];
-        let mut buf_guard = TablePageGuard::new(&mut temp_buf);
+        let buf_guard = TablePageGuard::new(&mut temp_buf);
 
         // copy the headers and slot array -> lower bound
         let lower_bound = self.get_freespace_lower_bound_offset() as usize;
@@ -341,14 +326,14 @@ impl<'a> TablePageGuard<'a> {
 
         for i in 0..total_slots {
             // only apply operations on live slots
-            if self.is_tombstone_slot(i)? {
+            if self.is_tombstone_slot(i as u32)? {
                 continue;
             }
 
             // move data to temp buf
-            let (_, record_len) = self.get_record_offset_len_tuple(i)?;
+            let (_, record_len) = self.get_record_offset_len_tuple(i as u32)?;
 
-            let live_record = self.get_record(i)?;
+            let live_record = self.get_record(i as u32)?;
             let upper_bound = new_upper_bound - record_len;
             new_upper_bound = upper_bound;
 

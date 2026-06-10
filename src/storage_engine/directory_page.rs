@@ -8,9 +8,9 @@ use crate::{error::{BasaltError, Result}, storage_engine::page::PAGE_SIZE};
 // 4 bytes -> no of entries
 // 4 bytes -> next directory page id
 
-const DIR_HEADER_SIZE: usize = 8;
-const DIR_ENTRY_SIZE: usize = 8; 
-const DIR_MAX_ENTRIES: u32 = ((PAGE_SIZE - DIR_HEADER_SIZE)  / DIR_ENTRY_SIZE ) as u32;
+pub const DIR_HEADER_SIZE: usize = 8;
+pub const DIR_ENTRY_SIZE: usize = 8; 
+pub const DIR_MAX_ENTRIES: u32 = ((PAGE_SIZE - DIR_HEADER_SIZE)  / DIR_ENTRY_SIZE ) as u32;
 
 pub struct DirectoryPageGuard<'a> {
     pub data: &'a mut [u8; PAGE_SIZE],

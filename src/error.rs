@@ -16,10 +16,10 @@ pub enum BasaltError {
     CorruptedPage,
 
     #[error("Slot Index {0} is out of bounds")]
-    SlotOutOfBounds(u16),
+    SlotOutOfBounds(u32),
 
     #[error("Slot {0} is a tombstone slot.")]
-    TombstoneSlot(u16),
+    TombstoneSlot(u32),
 
     #[error("The database engine ran out of allocated memory!")]
     OutOfMemory,

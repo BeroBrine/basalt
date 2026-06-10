@@ -6,20 +6,22 @@ use std::{
 use crate::{
     buffer::replacer::Replacer,
     error::{BasaltError, Result},
-    storage_engine::{disk_manager::DiskManager, page::TablePageGuard},
+    storage_engine::{disk_manager::DiskManager, page::{PAGE_SIZE, TablePageGuard}},
 };
 
-struct Frame {
-    data: [u8; 4096],
-    page_id: Option<u32>,
-    is_dirty: bool,
-    pin_count: usize,
+
+pub const DIR_END_MARKER: u32 = u32::MAX; // this will mark the end of the directory pages chained list
+pub struct Frame {
+    pub data: [u8; PAGE_SIZE],
+    pub page_id: Option<u32>,
+    pub is_dirty: bool,
+    pub pin_count: usize,
 }
 
 impl Frame {
     pub fn new() -> Self {
         Self {
-            data: [0u8; 4096], 
+            data: [0u8; PAGE_SIZE], 
             page_id: None,
             is_dirty: false,
             pin_count: 0,
@@ -120,6 +122,44 @@ impl BufferManager {
         self.replacer.pin(victim_frame_id);
 
         Ok(victim_frame_arc.clone())
+    }
+
+    // return a brand new zeroed out page in the buffer pool.
+    pub fn new_page(&self , page_id: u32) -> Result<Arc<RwLock<Frame>>> {
+
+        let victim_frame_id = self.find_victim_frame_id()?;
+        let victim_frame_arc = Arc::clone(&self.frames[victim_frame_id]);
+
+        let mut frame = victim_frame_arc.write().unwrap();
+
+
+        // if the frame contains data , flush it to disk first
+        if frame.is_dirty {
+            if let Some(old_frame_id) = frame.page_id {
+                let page_guard = TablePageGuard::new(&mut frame.data);
+                self.disk_manager.write_page(old_frame_id, &page_guard)?;
+
+            }
+        }
+
+        // update the page table to remove the old entry and insert the new entry
+        let mut page_table = self.page_table.write().unwrap();
+        if let Some(old_page_id) = frame.page_id {
+            page_table.remove(&old_page_id);
+        }
+        page_table.insert(page_id , victim_frame_id);
+
+        // clean the page 
+        frame.data.fill(0);
+        frame.page_id = Some(page_id);
+        frame.is_dirty = true;
+        frame.pin_count = 1;
+
+
+        self.replacer.pin(victim_frame_id);
+
+        Ok(victim_frame_arc.clone())
+
     }
 
     pub fn unpin_page(&self, page_id: u32, is_dirty: bool) -> Result<()> {
@@ -276,4 +316,36 @@ mod tests {
 
         fs::remove_file(file_path).unwrap();
     }
+
+    #[test]
+    fn test_buffer_manager_new_page() {
+
+        let file_path = "test_bm_new_page.db";
+        let pool_size = 1;
+        let disk_manager = Arc::new(DiskManager::new(file_path).unwrap());
+        let replacer = Arc::new(ClockReplacer::new(pool_size));
+        let bm = BufferManager::new(pool_size, replacer, disk_manager);
+
+        let page_id = 06062003;
+        let new_page_arc = bm.new_page(page_id).expect("Failed to generate new page");
+
+        let mut new_page = new_page_arc.write().unwrap();
+
+        // check if the page is zeroed out.
+        for i in 0..new_page.data.len() {
+            let zeroed_out_data = new_page.data[i];
+            assert_eq!(zeroed_out_data , 0);
+        }
+
+        assert_eq!(new_page.page_id , Some(06062003));
+        assert_eq!(new_page.is_dirty , true);
+        assert_eq!(new_page.pin_count , 1);
+
+        fs::remove_file(file_path).unwrap();
+
+    } 
+
+
+
+
 }
